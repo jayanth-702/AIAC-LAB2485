@@ -1,0 +1,871 @@
+================================================================================
+  BIO-ACOUSTIC SENSING WEARABLE - ALL AI PROMPTS & GENERATED CODE
+  SR University, Warangal, Telangana | Department of CS & AI
+================================================================================
+
+--------------------------------------------------------------------------------
+PROMPT 1 (P1) | Tool: ChatGPT / Claude
+Purpose: Signal Acquisition & Pre-Processing
+--------------------------------------------------------------------------------
+
+PROMPT:
+"Write a Python script to read MEMS sensor data from a serial port, apply a
+Butterworth bandpass filter (10-2000 Hz), and output the filtered signal in
+real time."
+
+GENERATED CODE:
+----------------
+from scipy.signal import butter, sosfilt
+import numpy as np
+import serial
+
+def butter_bandpass(lowcut, highcut, fs, order=4):
+    nyq = 0.5 * fs
+    low = lowcut / nyq
+    high = highcut / nyq
+    sos = butter(order, [low, high], btype='band', analog=False, output='sos')
+    return sos
+
+def apply_filter(data, fs=8000):
+    sos = butter_bandpass(10, 2000, fs)
+    return sosfilt(sos, data)
+
+def read_sensor_realtime(port='COM3', baud=115200, fs=8000):
+    ser = serial.Serial(port, baud)
+    buffer = []
+    print("Reading sensor data... Press Ctrl+C to stop.")
+    try:
+        while True:
+            line = ser.readline().decode('utf-8').strip()
+            value = float(line)
+            buffer.append(value)
+            if len(buffer) >= fs:
+                filtered = apply_filter(np.array(buffer), fs)
+                print(f"Filtered sample: {filtered[-1]:.4f}")
+                buffer = buffer[fs//2:]  # sliding window
+    except KeyboardInterrupt:
+        print("Stopped.")
+    finally:
+        ser.close()
+
+if __name__ == "__main__":
+    read_sensor_realtime()
+
+
+================================================================================
+
+--------------------------------------------------------------------------------
+PROMPT 2 (P2) | Tool: ChatGPT / GitHub Copilot
+Purpose: MFCC Feature Extraction Module
+--------------------------------------------------------------------------------
+
+PROMPT:
+"Generate Python code to extract MFCC features (13 coefficients) from a
+sliding window (50ms, 25ms overlap) of audio/acoustic data using librosa and
+prepare feature vectors for SVM classification."
+
+GENERATED CODE:
+----------------
+import librosa
+import numpy as np
+
+def extract_mfcc_features(signal, sr=8000, n_mfcc=13,
+                           win_len=0.05, hop_len=0.025):
+    """
+    Extract MFCC features from acoustic signal.
+    Args:
+        signal  : 1D numpy array of acoustic samples
+        sr      : Sample rate (default 8000 Hz)
+        n_mfcc  : Number of MFCC coefficients (default 13)
+        win_len : Window length in seconds (default 50ms)
+        hop_len : Hop length in seconds (default 25ms)
+    Returns:
+        feature_vector : Mean MFCC vector of shape (n_mfcc,)
+    """
+    n_fft = int(win_len * sr)
+    hop   = int(hop_len * sr)
+    mfcc  = librosa.feature.mfcc(
+        y=signal,
+        sr=sr,
+        n_mfcc=n_mfcc,
+        n_fft=n_fft,
+        hop_length=hop
+    )
+    # Return mean across time frames as feature vector
+    return np.mean(mfcc.T, axis=0)
+
+def extract_features_from_file(filepath, sr=8000):
+    signal, _ = librosa.load(filepath, sr=sr)
+    return extract_mfcc_features(signal, sr)
+
+# Example usage
+if __name__ == "__main__":
+    import os
+    features = []
+    labels   = []
+    data_dir = "gesture_data/"
+    gesture_classes = ['pinch', 'fist', 'swipe', 'thumb_up', 'open_palm']
+
+    for label in gesture_classes:
+        folder = os.path.join(data_dir, label)
+        for fname in os.listdir(folder):
+            fpath = os.path.join(folder, fname)
+            vec = extract_features_from_file(fpath)
+            features.append(vec)
+            labels.append(label)
+
+    features = np.array(features)
+    print(f"Feature matrix shape: {features.shape}")
+    print(f"Sample feature vector: {features[0]}")
+
+
+================================================================================
+
+--------------------------------------------------------------------------------
+PROMPT 3 (P3) | Tool: ChatGPT / Claude
+Purpose: SVM Classifier Training & Export
+--------------------------------------------------------------------------------
+
+PROMPT:
+"Write a Python script to train an SVM classifier with RBF kernel on gesture
+MFCC feature vectors, evaluate accuracy, and export the trained model using
+joblib for embedded deployment."
+
+GENERATED CODE:
+----------------
+import numpy as np
+from sklearn.svm import SVC
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import classification_report, accuracy_score
+import joblib
+
+def train_gesture_svm(features, labels, export_path='gesture_svm.pkl'):
+    """
+    Train SVM classifier on MFCC gesture features.
+    Args:
+        features    : numpy array of shape (n_samples, n_features)
+        labels      : list of gesture class labels
+        export_path : path to save trained model
+    Returns:
+        accuracy    : float
+    """
+    # Split dataset
+    X_train, X_test, y_train, y_test = train_test_split(
+        features, labels, test_size=0.2, random_state=42, stratify=labels
+    )
+
+    # Normalize features
+    scaler = StandardScaler()
+    X_train = scaler.fit_transform(X_train)
+    X_test  = scaler.transform(X_test)
+
+    # Train SVM with RBF kernel
+    clf = SVC(kernel='rbf', C=10, gamma='scale', probability=True)
+    clf.fit(X_train, y_train)
+
+    # Evaluate
+    y_pred = clf.predict(X_test)
+    acc = accuracy_score(y_test, y_pred)
+    print(f"Accuracy: {acc * 100:.2f}%")
+    print("\nClassification Report:")
+    print(classification_report(y_test, y_pred))
+
+    # Export model and scaler
+    joblib.dump({'model': clf, 'scaler': scaler}, export_path)
+    print(f"Model saved to {export_path}")
+    return acc
+
+def predict_gesture(feature_vector, model_path='gesture_svm.pkl'):
+    bundle = joblib.load(model_path)
+    clf    = bundle['model']
+    scaler = bundle['scaler']
+    vec    = scaler.transform([feature_vector])
+    pred   = clf.predict(vec)[0]
+    conf   = clf.predict_proba(vec).max()
+    return pred, conf
+
+if __name__ == "__main__":
+    # Dummy usage - replace with real feature matrix
+    X = np.random.rand(1500, 13)
+    y = ['pinch'] * 300 + ['fist'] * 300 + ['swipe'] * 300 + \
+        ['thumb_up'] * 300 + ['open_palm'] * 300
+    train_gesture_svm(X, y)
+
+
+================================================================================
+
+--------------------------------------------------------------------------------
+PROMPT 4 (P4) | Tool: GitHub Copilot
+Purpose: STM32 Embedded Firmware (C/C++)
+--------------------------------------------------------------------------------
+
+PROMPT:
+"Write C++ code for STM32 ARM Cortex-M4 to receive ADC samples at 8kHz, apply
+a fixed-point bandpass filter, compute MFCC features, and run SVM inference to
+output gesture class via UART."
+
+GENERATED CODE:
+----------------
+/* bio_acoustic_firmware.c
+   STM32F4 - ARM Cortex-M4 @ 168 MHz
+   Bio-Acoustic Gesture Recognition Firmware
+*/
+
+#include "stm32f4xx_hal.h"
+#include "arm_math.h"
+#include "mfcc.h"
+#include "svm_model.h"
+#include <stdio.h>
+#include <string.h>
+
+/* ---- Configuration ---- */
+#define SAMPLE_RATE       8000
+#define FRAME_SIZE        400     /* 50ms @ 8kHz */
+#define HOP_SIZE          200     /* 25ms overlap */
+#define N_MFCC            13
+#define N_GESTURE_CLASSES 5
+#define CONFIDENCE_THRESH 0.85f
+
+/* ---- Buffers ---- */
+static int16_t  adc_buffer[FRAME_SIZE];
+static float32_t frame_f32[FRAME_SIZE];
+static float32_t mfcc_features[N_MFCC];
+
+/* ---- UART handle (defined in main) ---- */
+extern UART_HandleTypeDef huart2;
+extern ADC_HandleTypeDef  hadc1;
+
+const char* gesture_names[N_GESTURE_CLASSES] = {
+    "PINCH", "FIST", "SWIPE", "THUMB_UP", "OPEN_PALM"
+};
+
+/* ---- Bandpass Filter (10-2000 Hz, IIR Biquad) ---- */
+static arm_biquad_casd_df1_inst_f32 bpf_instance;
+static float32_t bpf_state[4 * 2];  /* 2 biquad stages */
+/* Coefficients generated by MATLAB/Python scipy for 10-2000 Hz @ 8kHz */
+static float32_t bpf_coeffs[5 * 2] = {
+    0.9723f, -1.9446f, 0.9723f, 1.9440f, -0.9452f,
+    0.9801f, -1.9602f, 0.9801f, 1.9596f, -0.9608f
+};
+
+void SystemInit_BioAcoustic(void) {
+    arm_biquad_cascade_df1_init_f32(
+        &bpf_instance, 2, bpf_coeffs, bpf_state
+    );
+}
+
+void process_gesture_frame(void) {
+    /* 1. Convert ADC int16 to float32 */
+    arm_q15_to_float((q15_t*)adc_buffer, frame_f32, FRAME_SIZE);
+
+    /* 2. Apply bandpass filter */
+    float32_t filtered[FRAME_SIZE];
+    arm_biquad_cascade_df1_f32(
+        &bpf_instance, frame_f32, filtered, FRAME_SIZE
+    );
+
+    /* 3. Extract MFCC features */
+    compute_mfcc(filtered, FRAME_SIZE, SAMPLE_RATE, N_MFCC, mfcc_features);
+
+    /* 4. Run SVM inference */
+    int   gesture_id;
+    float confidence;
+    svm_predict(mfcc_features, N_MFCC, &gesture_id, &confidence);
+
+    /* 5. Output result over UART if confidence exceeds threshold */
+    if (confidence >= CONFIDENCE_THRESH) {
+        char msg[64];
+        snprintf(msg, sizeof(msg), "GESTURE:%s,CONF:%.2f\r\n",
+                 gesture_names[gesture_id], confidence);
+        HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), HAL_MAX_DELAY);
+
+        /* 6. Trigger haptic feedback */
+        haptic_trigger_pattern(1);  /* Success buzz */
+    }
+}
+
+/* ADC DMA complete callback - called every FRAME_SIZE samples */
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
+    if (hadc->Instance == ADC1) {
+        process_gesture_frame();
+    }
+}
+
+
+================================================================================
+
+--------------------------------------------------------------------------------
+PROMPT 5 (P5) | Tool: ChatGPT
+Purpose: BLE Interface & Haptic Feedback Control
+--------------------------------------------------------------------------------
+
+PROMPT:
+"Create a Python script using the BLE library to receive gesture classification
+results wirelessly from an STM32 device and trigger haptic feedback patterns
+based on gesture class (pinch, swipe, fist)."
+
+GENERATED CODE:
+----------------
+import asyncio
+from bleak import BleakClient, BleakScanner
+
+# BLE UUIDs (must match firmware)
+DEVICE_NAME      = "BioAcousticWearable"
+GESTURE_UUID     = "0000ff01-0000-1000-8000-00805f9b34fb"
+HAPTIC_UUID      = "0000ff02-0000-1000-8000-00805f9b34fb"
+
+HAPTIC_PATTERNS = {
+    "PINCH"     : bytes([0x01]),  # Short buzz
+    "FIST"      : bytes([0x02]),  # Double pulse
+    "SWIPE"     : bytes([0x03]),  # Long rumble
+    "THUMB_UP"  : bytes([0x04]),  # Triple tap
+    "OPEN_PALM" : bytes([0x05]),  # Slow wave
+}
+
+def gesture_callback(sender, data):
+    gesture_str = data.decode('utf-8').strip()
+    print(f"Received gesture: {gesture_str}")
+    return gesture_str
+
+async def run_ble_client():
+    print("Scanning for BioAcoustic Wearable...")
+    devices = await BleakScanner.discover()
+    target  = None
+
+    for d in devices:
+        if d.name and DEVICE_NAME in d.name:
+            target = d
+            print(f"Found device: {d.name} [{d.address}]")
+            break
+
+    if not target:
+        print("Device not found.")
+        return
+
+    async with BleakClient(target.address) as client:
+        print("Connected!")
+
+        last_gesture = {"name": None}
+
+        def on_gesture(sender, data):
+            gesture = data.decode('utf-8').strip()
+            last_gesture["name"] = gesture
+            print(f"[GESTURE] {gesture}")
+
+        await client.start_notify(GESTURE_UUID, on_gesture)
+
+        try:
+            while True:
+                await asyncio.sleep(0.1)
+                g = last_gesture["name"]
+                if g and g in HAPTIC_PATTERNS:
+                    await client.write_gatt_char(
+                        HAPTIC_UUID, HAPTIC_PATTERNS[g]
+                    )
+                    last_gesture["name"] = None
+        except KeyboardInterrupt:
+            print("Disconnecting...")
+            await client.stop_notify(GESTURE_UUID)
+
+if __name__ == "__main__":
+    asyncio.run(run_ble_client())
+
+
+================================================================================
+
+--------------------------------------------------------------------------------
+PROMPT 6 (P6) | Tool: ChatGPT
+Purpose: Dataset Collection & CSV Preprocessing
+--------------------------------------------------------------------------------
+
+PROMPT:
+"Write a Python script to collect labelled gesture training data from a MEMS
+sensor via serial port, store samples as CSV with gesture class labels, and
+split into train/test sets for model training."
+
+GENERATED CODE:
+----------------
+import serial
+import csv
+import time
+import numpy as np
+from sklearn.model_selection import train_test_split
+
+GESTURE_LABELS = ['pinch', 'fist', 'swipe', 'thumb_up', 'open_palm']
+SAMPLES_PER_CLASS = 300
+FRAME_SIZE = 400   # 50ms at 8kHz
+PORT  = 'COM3'
+BAUD  = 115200
+
+def collect_gesture_data(gesture_label, n_samples, port, baud):
+    ser = serial.Serial(port, baud, timeout=2)
+    time.sleep(2)  # Wait for device to initialise
+    collected = []
+    print(f"\nPrepare to perform: {gesture_label.upper()}")
+    input("Press ENTER when ready...")
+
+    for i in range(n_samples):
+        frame = []
+        for _ in range(FRAME_SIZE):
+            line = ser.readline().decode('utf-8').strip()
+            try:
+                frame.append(float(line))
+            except ValueError:
+                frame.append(0.0)
+        collected.append(frame + [gesture_label])
+        if (i + 1) % 50 == 0:
+            print(f"  Collected {i+1}/{n_samples} samples")
+
+    ser.close()
+    return collected
+
+def save_to_csv(data, filename='gesture_dataset.csv'):
+    headers = [f"sample_{i}" for i in range(FRAME_SIZE)] + ['label']
+    with open(filename, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(headers)
+        writer.writerows(data)
+    print(f"\nDataset saved to {filename} ({len(data)} rows)")
+
+def split_dataset(filename='gesture_dataset.csv'):
+    import pandas as pd
+    df = pd.read_csv(filename)
+    X  = df.iloc[:, :-1].values
+    y  = df.iloc[:, -1].values
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, stratify=y, random_state=42
+    )
+    np.save('X_train.npy', X_train)
+    np.save('X_test.npy',  X_test)
+    np.save('y_train.npy', y_train)
+    np.save('y_test.npy',  y_test)
+    print(f"Train: {X_train.shape}, Test: {X_test.shape}")
+
+if __name__ == "__main__":
+    all_data = []
+    for label in GESTURE_LABELS:
+        data = collect_gesture_data(label, SAMPLES_PER_CLASS, PORT, BAUD)
+        all_data.extend(data)
+    save_to_csv(all_data)
+    split_dataset()
+
+
+================================================================================
+
+--------------------------------------------------------------------------------
+PROMPT 7 (P7) | Tool: GitHub Copilot
+Purpose: TinyML Model Conversion (TensorFlow Lite)
+--------------------------------------------------------------------------------
+
+PROMPT:
+"Generate a TensorFlow Lite model conversion script that takes a trained Keras
+CNN gesture classifier and exports it as a quantized .tflite model suitable
+for deployment on an ARM Cortex-M4 microcontroller."
+
+GENERATED CODE:
+----------------
+import tensorflow as tf
+import numpy as np
+
+def convert_to_tflite(model_path='gesture_cnn.h5',
+                      output_path='gesture_model.tflite',
+                      representative_data_path='X_train.npy'):
+    """
+    Convert Keras model to INT8 quantized TFLite for ARM Cortex-M4.
+    """
+    # Load trained Keras model
+    model = tf.keras.models.load_model(model_path)
+    model.summary()
+
+    # Load representative dataset for quantization calibration
+    X_rep = np.load(representative_data_path).astype(np.float32)
+
+    def representative_dataset():
+        for i in range(min(200, len(X_rep))):
+            yield [X_rep[i:i+1]]
+
+    # Setup TFLite converter with INT8 quantization
+    converter = tf.lite.TFLiteConverter.from_keras_model(model)
+    converter.optimizations = [tf.lite.Optimize.DEFAULT]
+    converter.representative_dataset = representative_dataset
+    converter.target_spec.supported_ops = [
+        tf.lite.OpsSet.TFLITE_BUILTINS_INT8
+    ]
+    converter.inference_input_type  = tf.int8
+    converter.inference_output_type = tf.int8
+
+    # Convert and save
+    tflite_model = converter.convert()
+    with open(output_path, 'wb') as f:
+        f.write(tflite_model)
+
+    size_kb = len(tflite_model) / 1024
+    print(f"TFLite model saved: {output_path}")
+    print(f"Model size: {size_kb:.2f} KB")
+
+    # Verify with interpreter
+    interpreter = tf.lite.Interpreter(model_path=output_path)
+    interpreter.allocate_tensors()
+    inp  = interpreter.get_input_details()
+    outp = interpreter.get_output_details()
+    print(f"Input  shape: {inp[0]['shape']}, dtype: {inp[0]['dtype']}")
+    print(f"Output shape: {outp[0]['shape']}, dtype: {outp[0]['dtype']}")
+    return tflite_model
+
+if __name__ == "__main__":
+    convert_to_tflite()
+
+
+================================================================================
+
+--------------------------------------------------------------------------------
+PROMPT 8 (P8) | Tool: Claude AI
+Purpose: React.js BLE Web Dashboard (Front-End)
+--------------------------------------------------------------------------------
+
+PROMPT:
+"Create a React.js web dashboard component that connects to a BLE wearable
+device, displays live gesture classification results, confidence scores, and
+gesture event history in a real-time updating table."
+
+GENERATED CODE:
+----------------
+import { useState, useEffect, useCallback } from 'react';
+
+const DEVICE_NAME   = 'BioAcousticWearable';
+const GESTURE_UUID  = '0000ff01-0000-1000-8000-00805f9b34fb';
+const SERVICE_UUID  = '0000ff00-0000-1000-8000-00805f9b34fb';
+
+export default function GestureDashboard() {
+  const [connected,  setConnected]  = useState(false);
+  const [gesture,    setGesture]    = useState('--');
+  const [confidence, setConfidence] = useState(0);
+  const [log,        setLog]        = useState([]);
+  const [device,     setDevice]     = useState(null);
+
+  const connectBLE = useCallback(async () => {
+    try {
+      const dev = await navigator.bluetooth.requestDevice({
+        filters: [{ name: DEVICE_NAME }],
+        optionalServices: [SERVICE_UUID]
+      });
+      const server  = await dev.gatt.connect();
+      const service = await server.getPrimaryService(SERVICE_UUID);
+      const char    = await service.getCharacteristic(GESTURE_UUID);
+
+      await char.startNotifications();
+      char.addEventListener('characteristicvaluechanged', (event) => {
+        const raw  = new TextDecoder().decode(event.target.value);
+        const parts = raw.trim().split(',');
+        // Expected format: "GESTURE:PINCH,CONF:0.924"
+        const g    = parts[0]?.split(':')[1] || '--';
+        const c    = parseFloat(parts[1]?.split(':')[1]) || 0;
+        setGesture(g);
+        setConfidence((c * 100).toFixed(1));
+        setLog(prev => [{
+          time: new Date().toLocaleTimeString(),
+          gesture: g,
+          confidence: (c * 100).toFixed(1) + '%',
+          command: getCommand(g)
+        }, ...prev].slice(0, 20));
+      });
+
+      setDevice(dev);
+      setConnected(true);
+      dev.addEventListener('gattserverdisconnected', () => setConnected(false));
+    } catch (err) {
+      console.error('BLE connection failed:', err);
+    }
+  }, []);
+
+  const getCommand = (g) => {
+    const map = {
+      PINCH: 'Scroll Up', FIST: 'Play/Pause',
+      SWIPE: 'Next Slide', THUMB_UP: 'Volume Up', OPEN_PALM: 'Stop'
+    };
+    return map[g] || '--';
+  };
+
+  return (
+    <div className="dashboard">
+      <h1>Bio-Acoustic Gesture Dashboard</h1>
+      <button onClick={connectBLE} disabled={connected}>
+        {connected ? 'Connected' : 'Connect Wearable'}
+      </button>
+      <div className="stats">
+        <div className="card"><h2>{gesture}</h2><p>Gesture</p></div>
+        <div className="card"><h2>{confidence}%</h2><p>Confidence</p></div>
+        <div className="card"><h2>{getCommand(gesture)}</h2><p>Command</p></div>
+      </div>
+      <table>
+        <thead>
+          <tr><th>Time</th><th>Gesture</th><th>Confidence</th><th>Command</th></tr>
+        </thead>
+        <tbody>
+          {log.map((row, i) => (
+            <tr key={i}>
+              <td>{row.time}</td><td>{row.gesture}</td>
+              <td>{row.confidence}</td><td>{row.command}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+
+================================================================================
+
+--------------------------------------------------------------------------------
+PROMPT 9 (P9) | Tool: ChatGPT
+Purpose: Model Evaluation & Visualization
+--------------------------------------------------------------------------------
+
+PROMPT:
+"Write Python code to evaluate gesture classifier performance — generate a
+confusion matrix, classification report (precision, recall, F1 per gesture
+class), and plot accuracy vs training samples graph using matplotlib."
+
+GENERATED CODE:
+----------------
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.metrics import (
+    confusion_matrix, classification_report, accuracy_score
+)
+from sklearn.svm import SVC
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import learning_curve
+import joblib
+
+GESTURE_CLASSES = ['Pinch', 'Fist', 'Swipe', 'Thumb Up', 'Open Palm']
+
+def evaluate_model(model_path, X_test, y_test):
+    bundle  = joblib.load(model_path)
+    clf     = bundle['model']
+    scaler  = bundle['scaler']
+    X_scaled = scaler.transform(X_test)
+    y_pred   = clf.predict(X_scaled)
+
+    acc = accuracy_score(y_test, y_pred)
+    print(f"Test Accuracy: {acc * 100:.2f}%")
+    print("\nClassification Report:")
+    print(classification_report(y_test, y_pred, target_names=GESTURE_CLASSES))
+
+    # Confusion Matrix
+    cm = confusion_matrix(y_test, y_pred)
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                xticklabels=GESTURE_CLASSES, yticklabels=GESTURE_CLASSES)
+    plt.title('Gesture Classification - Confusion Matrix')
+    plt.ylabel('True Label')
+    plt.xlabel('Predicted Label')
+    plt.tight_layout()
+    plt.savefig('confusion_matrix.png', dpi=150)
+    plt.show()
+    return acc
+
+def plot_learning_curve(X, y):
+    scaler  = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    clf     = SVC(kernel='rbf', C=10, gamma='scale')
+
+    train_sizes, train_scores, val_scores = learning_curve(
+        clf, X_scaled, y, cv=5,
+        train_sizes=np.linspace(0.1, 1.0, 10),
+        scoring='accuracy', n_jobs=-1
+    )
+    train_mean = np.mean(train_scores, axis=1) * 100
+    val_mean   = np.mean(val_scores,   axis=1) * 100
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(train_sizes, train_mean, 'o-', label='Training Accuracy',  color='#0077B6')
+    plt.plot(train_sizes, val_mean,   's-', label='Validation Accuracy', color='#00B4D8')
+    plt.axhline(y=90, color='gray', linestyle='--', label='90% Target')
+    plt.xlabel('Number of Training Samples')
+    plt.ylabel('Accuracy (%)')
+    plt.title('Learning Curve - Gesture SVM Classifier')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig('learning_curve.png', dpi=150)
+    plt.show()
+
+if __name__ == "__main__":
+    X_test  = np.load('X_test.npy')
+    y_test  = np.load('y_test.npy')
+    X_train = np.load('X_train.npy')
+    y_train = np.load('y_train.npy')
+    evaluate_model('gesture_svm.pkl', X_test, y_test)
+    plot_learning_curve(
+        np.vstack([X_train, X_test]),
+        np.hstack([y_train, y_test])
+    )
+
+
+================================================================================
+
+--------------------------------------------------------------------------------
+PROMPT 10 (P10) | Tool: Claude AI
+Purpose: STM32 Haptic Driver Firmware (C Code)
+--------------------------------------------------------------------------------
+
+PROMPT:
+"Generate C code for STM32 to control a DRV2605L haptic driver IC over I2C —
+implement three distinct vibration patterns (short buzz for success, double-
+pulse for error, long rumble for system idle) triggered by gesture class output."
+
+GENERATED CODE:
+----------------
+/* drv2605l_haptic.c
+   STM32 Haptic Feedback Driver using DRV2605L over I2C
+   Patterns: Success (short buzz), Error (double pulse), Idle (long rumble)
+*/
+
+#include "stm32f4xx_hal.h"
+#include "drv2605l.h"
+#include <stdint.h>
+
+/* ---- DRV2605L Register Map ---- */
+#define DRV2605_ADDR         (0x5A << 1)
+#define REG_STATUS           0x00
+#define REG_MODE             0x01
+#define REG_RTP_INPUT        0x02
+#define REG_LIB_SEL          0x03
+#define REG_WAVESEQ1         0x04
+#define REG_WAVESEQ2         0x05
+#define REG_WAVESEQ3         0x06
+#define REG_WAVESEQ4         0x07
+#define REG_GO               0x0C
+#define REG_OVERDRIVE        0x0D
+#define REG_FEEDBACK_CTRL    0x1A
+#define REG_CTRL3            0x1D
+
+/* ---- Waveform Effect IDs (from DRV2605L library ROM) ---- */
+#define EFFECT_CLICK_SHORT        1    /* 100% Strong Click - Short */
+#define EFFECT_CLICK_DOUBLE      10    /* Double Click - 60%        */
+#define EFFECT_RUMBLE_LONG       47    /* Long Buzz - 100%          */
+#define EFFECT_BUZZ_SOFT         16    /* Soft Bump                 */
+#define EFFECT_END               0     /* Sequence terminator       */
+
+extern I2C_HandleTypeDef hi2c1;
+
+/* ---- Low-level I2C write ---- */
+static HAL_StatusTypeDef DRV2605_WriteReg(uint8_t reg, uint8_t val) {
+    uint8_t buf[2] = {reg, val};
+    return HAL_I2C_Master_Transmit(&hi2c1, DRV2605_ADDR, buf, 2, HAL_MAX_DELAY);
+}
+
+/* ---- Initialise DRV2605L ---- */
+HAL_StatusTypeDef DRV2605_Init(void) {
+    HAL_StatusTypeDef status;
+    status  = DRV2605_WriteReg(REG_MODE, 0x00);          /* Out of standby */
+    status |= DRV2605_WriteReg(REG_LIB_SEL, 0x01);       /* LRA library    */
+    status |= DRV2605_WriteReg(REG_FEEDBACK_CTRL, 0xB6); /* LRA mode       */
+    status |= DRV2605_WriteReg(REG_CTRL3, 0xA3);         /* LRA open loop  */
+    return status;
+}
+
+/* ---- Play waveform sequence ---- */
+static void DRV2605_PlaySequence(uint8_t effect1, uint8_t effect2,
+                                  uint8_t effect3) {
+    DRV2605_WriteReg(REG_WAVESEQ1, effect1);
+    DRV2605_WriteReg(REG_WAVESEQ2, effect2);
+    DRV2605_WriteReg(REG_WAVESEQ3, effect3);
+    DRV2605_WriteReg(REG_WAVESEQ4, EFFECT_END);
+    DRV2605_WriteReg(REG_GO, 0x01);  /* Trigger playback */
+}
+
+/* ---- Pattern 1: SUCCESS - Short single buzz ---- */
+void Haptic_Pattern_Success(void) {
+    DRV2605_PlaySequence(EFFECT_CLICK_SHORT, EFFECT_END, EFFECT_END);
+}
+
+/* ---- Pattern 2: ERROR - Double pulse ---- */
+void Haptic_Pattern_Error(void) {
+    DRV2605_PlaySequence(EFFECT_CLICK_DOUBLE, EFFECT_BUZZ_SOFT, EFFECT_END);
+}
+
+/* ---- Pattern 3: IDLE - Long rumble ---- */
+void Haptic_Pattern_Idle(void) {
+    DRV2605_PlaySequence(EFFECT_RUMBLE_LONG, EFFECT_END, EFFECT_END);
+}
+
+/* ---- Trigger pattern based on gesture classification result ---- */
+void Haptic_GestureFeedback(uint8_t gesture_id, float confidence) {
+    if (confidence >= 0.85f && gesture_id > 0) {
+        Haptic_Pattern_Success();    /* Recognised gesture */
+    } else if (confidence < 0.60f) {
+        Haptic_Pattern_Error();      /* Low confidence / error */
+    } else {
+        Haptic_Pattern_Idle();       /* System waiting */
+    }
+}
+
+
+================================================================================
+images generation prompts
+
+
+•	Acoustic Signal Acquisition: When the user performs a hand or wrist gesture, the associated muscles and tendons generate mechanical vibrations propagated through bone and tissue to the skin surface. MEMS piezoelectric sensors affixed to the skin surface transduce these vibrations into electrical 
+signals.
+
+
+
+•	Pre-Processing: The raw electrical signal is amplified by a low-noise instrumentation amplifier, followed by a bandpass filter (10 Hz - 2000 Hz) to isolate musculoskeletal acoustic content and suppress ambient noise.
+
+
+•	Analog-to-Digital Conversion: The conditioned signal is sampled at 8 kHz using a 16-bit ADC to ensure sufficient resolution for gesture feature differentiation.
+
+•	Feature Extraction: A sliding window (50 ms window, 25 ms overlap) applies Short-Time Fourier Transform (STFT) or Mel-frequency cepstral coefficients (MFCCs) to compute time-frequency features characterising each gesture.
+
+
+•	Gesture Classification: The extracted feature vector is passed to a trained ML classifier (CNN or SVM). The model, trained on a labelled gesture dataset, outputs the recognised gesture class with a confidence score.
+
+
+•	Decision & Control Output: If confidence exceeds the threshold, the system maps the gesture to a predefined device command (e.g., scroll, click, play/pause) transmitted via Bluetooth Low Energy (BLE) to the connected device.
+
+•	Haptic Feedback: Simultaneously, the microcontroller drives a linear resonant actuator (LRA) or eccentric rotating mass (ERM) motor to deliver a tactile confirmation pulse to the user, completing the interaction loop.
+
+
+
+ Flow Diagram Description:Bio-Acoustic Sensing Wearable for Non-Invasive Gesture Recognition and Haptic Feedback
+
+--------------------------------------------------------------------------------
+  PRESENTATION GENERATION PROMPTS
+  (Prompts used to create the PowerPoint slides via Node.js / PptxGenJS)
+--------------------------------------------------------------------------------
+
+SLIDE CREATION PROMPT (used with Claude AI):
+"Create a professional 10-slide PowerPoint presentation for a Bio-Acoustic
+Sensing Wearable project using PptxGenJS with a dark navy and teal color
+scheme. Slides required:
+  Slide 1  - Title and Team Details (5 inventors, SR University)
+  Slide 2  - Introduction (problem statement, 92.4% accuracy stat)
+  Slide 3  - Objectives (6 numbered objective cards)
+  Slide 4  - Stakeholders (8 beneficiary groups)
+  Slide 5  - Programming Languages, Tools, and Software
+  Slide 6  - AI Prompts used to generate code (P1-P5)
+  Slide 7  - System workflow flowchart (7-step vertical columns)
+  Slide 8  - Front-end web application dashboard mockup
+  Slide 9  - Proof of prompts generating code (code editor mockups)
+  Slide 10 - References (8 academic references)"
+
+ADD PROMPTS SLIDE PROMPT:
+"Add a new slide 10 (Part 2/2) with 5 more AI prompts (P6-P10) labelled
+with tool names and purposes, inserted before the References slide, matching
+the existing navy and teal design."
+
+ADD PROOF SLIDES PROMPT:
+"Add 2 more proof-of-code slides (Part 2/3 and Part 3/3) with dark code
+editor mockups showing prompt bubbles and syntax-highlighted generated code
+for P6 (Dataset Collection), P7 (TinyML Conversion), P8 (React Dashboard),
+and P10 (Haptic C Firmware)."
+
+================================================================================
+  END OF FILE
+  SR University | Department of CS & AI | Naresh Kumar Sripada et al. | 2024
+================================================================================
